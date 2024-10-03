@@ -1,6 +1,5 @@
-import torch
 from transformers import AutoModelForObjectDetection, AutoImageProcessor, TrainingArguments, Trainer
-from datasets import load_from_disk, DatasetDict
+from datasets import load_from_disk
 import os
 
 # Set the current working directory to the script's directory
