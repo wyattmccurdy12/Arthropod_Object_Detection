@@ -1,11 +1,34 @@
+'''
+Script motivation: create a coco-format dataset.
+
+This script is specifically for getting data from the ArTaxOr dataset (script assumes it exists in the same directory as itself)
+and processing it to coco format. Below I have listed the requirements that I have for a COCO format dataset:
+1. Must have a .json manifest file
+2. Must have a directory where all images are stored.
+
+Manifest file requirements: 
+A. It is a json file
+B. It has the following categories: Info, Images, Annotations, Categories.
+
+Basic structure: 
+{
+    'info': {'description': ..., 'version': ..., 'year': ..., 'date_created': ...},
+    'images': [{'id': ..., 'width': ..., 'height': ..., 'date_created': ..., 'file_name': 'example.jpg'}, ...]
+    'annotations': [{'id': ..., 'category_id': ..., 'image_id': ..., 'area': ..., 'bbox': [..., ..., ..., ...]}, ...],
+    'categories': [{'id': ..., 'name': ...}, ...]
+}
+
+'''
+
 import os
 import json
 from glob import glob
 from PIL import Image
-from datasets import Dataset, DatasetDict
+from datetime import datetime
 import argparse
 
 class HF_Dataset_Generator:
+
     def __init__(self, data_root_path):
         self.data_root_path = data_root_path
         self.filename_to_id = {}
@@ -18,6 +41,7 @@ class HF_Dataset_Generator:
             "Lepidoptera": 6,
             "Odonata": 7
         }
+        
         self.id_to_filename = {v: k for k, v in self.filename_to_id.items()}
         self.id_to_cat = {v: k for k, v in self.cat_to_id.items()}
 
@@ -86,12 +110,13 @@ class HF_Dataset_Generator:
             'width': width,
             'image': img,
             'image_id': image_id,
-            'objects': objects
+            'objects': objects,
+            'file_name': img_filename
         }
 
         return pair_dict
 
-    def generate_dataset(self):
+    def generate_dataset_coco(self):
         '''
         Generator that yields text-image pair dictionaries from the file structure.
         '''
@@ -104,33 +129,66 @@ class HF_Dataset_Generator:
                 pair_dict = self.get_pair_dict(order_dir, annotation_data)
                 yield pair_dict
 
-    def create_and_save_dataset(self, output_path):
-        # Create the dataset from the generator
-        print("Creating the dataset from the generator...")
-        ds = Dataset.from_generator(self.generate_dataset)
+    def create_coco_manifest(self, output_path):
+        '''
+        Create a COCO-format manifest file and save images to the specified directory.
+        '''
+        coco_dataset = {
+            'info': {
+                'description': 'ArTaxOr COCO-format dataset',
+                'version': '1.0',
+                'year': datetime.now().year,
+                'date_created': datetime.now().isoformat()
+            },
+            'images': [],
+            'annotations': [],
+            'categories': [{'id': v, 'name': k} for k, v in self.cat_to_id.items()]
+        }
 
-        # Define the split ratios
-        print("Splitting the dataset into train, test, and validation sets...")
-        train_test_split = ds.train_test_split(test_size=0.2)
-        test_valid_split = train_test_split['test'].train_test_split(test_size=0.5)
+        annotation_id = 1
 
-        # Create a DatasetDict
-        dd = DatasetDict({
-            'train': train_test_split['train'],
-            'test': test_valid_split['test'],
-            'validation': test_valid_split['train']
-        })
+        # Create the output directory for images if it doesn't exist
+        images_output_dir = os.path.join(output_path, 'images')
+        os.makedirs(images_output_dir, exist_ok=True)
 
-        # Save the dataset to disk
-        print(f"Saving the dataset to {output_path}...")
-        dd.save_to_disk(output_path)
-        print("Dataset saved successfully.")
+        for pair_dict in self.generate_dataset_coco():
+            # Save image to the output directory
+            img_output_path = os.path.join(images_output_dir, pair_dict['file_name'])
+            pair_dict['image'].save(img_output_path)
+
+            # Add image metadata to the manifest
+            coco_dataset['images'].append({
+                'id': pair_dict['image_id'],
+                'width': pair_dict['width'],
+                'height': pair_dict['height'],
+                'file_name': pair_dict['file_name'],
+                'date_created': datetime.now().isoformat()
+            })
+
+            # Add annotations to the manifest
+            for bbox, category_id, area in zip(pair_dict['objects']['bbox'], pair_dict['objects']['category'], pair_dict['objects']['area']):
+                coco_dataset['annotations'].append({
+                    'id': annotation_id,
+                    'image_id': pair_dict['image_id'],
+                    'category_id': category_id,
+                    'bbox': bbox,
+                    'area': area,
+                    'iscrowd': 0
+                })
+                annotation_id += 1
+
+        # Save the manifest file
+        manifest_output_path = os.path.join(output_path, 'annotations.json')
+        with open(manifest_output_path, 'w') as f:
+            json.dump(coco_dataset, f, indent=4)
+
+        print(f"COCO-format dataset created at {output_path}")
 
 if __name__ == "__main__":
     # Set up argument parser
-    parser = argparse.ArgumentParser(description="Generate and save a Hugging Face dataset.")
-    parser.add_argument("--data_root_path", type=str, required=True, help="Path to the root directory of the dataset.")
-    parser.add_argument("--output_path", type=str, default="./ArTaxOr_HF_dataset", help="Path to save the generated dataset.")
+    parser = argparse.ArgumentParser(description="Generate and save a COCO-format dataset.")
+    parser.add_argument("--data_root_path", type=str, default='ArTaxOr', help="Path to the root directory of the dataset.")
+    parser.add_argument("--output_path", type=str, default="./ArTaxOr_COCO_dataset", help="Path to save the generated dataset.")
 
     # Parse arguments
     args = parser.parse_args()
@@ -141,5 +199,5 @@ if __name__ == "__main__":
     # Create an instance of the HF_Dataset_Generator class
     generator = HF_Dataset_Generator(args.data_root_path)
 
-    # Create and save the dataset
-    generator.create_and_save_dataset(args.output_path)
+    # Create and save the COCO-format dataset
+    generator.create_coco_manifest(args.output_path)
