@@ -1,5 +1,5 @@
 '''
-Script motivation: create a coco-format dataset.
+Script motivation: create a coco-format dataset for ArTaxOr dataset provided.
 
 This script is specifically for getting data from the ArTaxOr dataset (script assumes it exists in the same directory as itself)
 and processing it to coco format. Below I have listed the requirements that I have for a COCO format dataset:
@@ -18,6 +18,8 @@ Basic structure:
     'categories': [{'id': ..., 'name': ...}, ...]
 }
 
+example usage:
+python create_hf_dataset.py --data_root_path ArTaxOr --output_path ArTaxOr_COCO_dataset
 '''
 
 import os
@@ -26,10 +28,20 @@ from glob import glob
 from PIL import Image
 from datetime import datetime
 import argparse
+from tqdm import tqdm
 
 class HF_Dataset_Generator:
+    """
+    A class to generate a COCO-format dataset from the ArTaxOr dataset.
+    """
 
     def __init__(self, data_root_path):
+        """
+        Initialize the dataset generator with the root path of the dataset.
+
+        Args:
+            data_root_path (str): Path to the root directory of the dataset.
+        """
         self.data_root_path = data_root_path
         self.filename_to_id = {}
         self.cat_to_id = {
@@ -47,8 +59,8 @@ class HF_Dataset_Generator:
 
     def get_pair_dict(self, order_dir, annotation_data):
         """
-        Given a directory for a given order, annotation data, and a filename-to-ID dictionary,
-        return a dictionary that can be converted to a Hugging Face dataset.
+        Given a directory for a given order and annotation data, return a dictionary
+        that can be converted to a Hugging Face dataset.
 
         Args:
             order_dir (str): Directory path for the given order.
@@ -117,22 +129,28 @@ class HF_Dataset_Generator:
         return pair_dict
 
     def generate_dataset_coco(self):
-        '''
+        """
         Generator that yields text-image pair dictionaries from the file structure.
-        '''
+        """
         for order in ["Araneae", "Coleoptera", "Diptera", "Hemiptera", "Hymenoptera", "Lepidoptera", "Odonata"]:
             order_dir = os.path.join(self.data_root_path, order)
             annotations_dir = os.path.join(order_dir, "annotations")
-            for annotation_filepath in glob(f"{annotations_dir}/*.json"):
+            annotation_files = glob(f"{annotations_dir}/*.json")
+            for annotation_filepath in tqdm(annotation_files, desc=f"Processing {order} annotations"):
                 with open(annotation_filepath, 'r') as file:
                     annotation_data = json.load(file)
                 pair_dict = self.get_pair_dict(order_dir, annotation_data)
                 yield pair_dict
 
     def create_coco_manifest(self, output_path):
-        '''
+        """
         Create a COCO-format manifest file and save images to the specified directory.
-        '''
+
+        Args:
+            output_path (str): Path to save the generated dataset.
+        """
+        print("Starting the creation of the COCO-format dataset...")
+
         coco_dataset = {
             'info': {
                 'description': 'ArTaxOr COCO-format dataset',
@@ -151,7 +169,7 @@ class HF_Dataset_Generator:
         images_output_dir = os.path.join(output_path, 'images')
         os.makedirs(images_output_dir, exist_ok=True)
 
-        for pair_dict in self.generate_dataset_coco():
+        for pair_dict in tqdm(self.generate_dataset_coco(), desc="Generating dataset"):
             # Save image to the output directory
             img_output_path = os.path.join(images_output_dir, pair_dict['file_name'])
             pair_dict['image'].save(img_output_path)
@@ -182,7 +200,7 @@ class HF_Dataset_Generator:
         with open(manifest_output_path, 'w') as f:
             json.dump(coco_dataset, f, indent=4)
 
-        print(f"COCO-format dataset created at {output_path}")
+        print(f"COCO-format dataset created successfully at {output_path}")
 
 if __name__ == "__main__":
     # Set up argument parser
