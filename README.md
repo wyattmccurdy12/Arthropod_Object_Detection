@@ -17,8 +17,8 @@ FocalNets, developed by Yang et. al. of Microsoft, are a type of neural network 
 In the context of object detection on insects and other arthropods, FocalNet may be a promising way forward.
 
 ## Files
-- `create_hf_dataset.py`: Script to generate and save the Hugging Face dataset.
-- `train_focalnet.py`: Script to train the FocalNet model on the ArTaxOr dataset.
+- `create_hf_dataset.py`: Script to generate and save the Hugging Face dataset -- and the coco formatted dataset as well.
+- `train_model.py`: Script to train the FocalNet model on the ArTaxOr dataset.
 - `README.md`: This file, providing an overview of the project.
 
 ## Usage
