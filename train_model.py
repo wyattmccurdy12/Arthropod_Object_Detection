@@ -3,18 +3,17 @@ This script trains a Mask R-CNN model with FocalNet as the backbone on the ArTax
 The goal is to use command line arguments to create comparisons between object detection models.
 
 sample command:
-python train_model.py -d /path/to/coco -hf microsoft/focalnet-base -o focalnet_artaxor_output
+python train_model.py -d ArTaxOr_COCO -hf microsoft/focalnet-base -o focalnet_artaxor_output
 '''
 
 import os
 import argparse
 import torch
+from torch.utils.data import DataLoader, Subset
 import torchvision
 from transformers import AutoImageProcessor, AutoModel
 from torchvision.models.detection import MaskRCNN
 from torchvision.models.detection.rpn import AnchorGenerator
-from torchvision.datasets import CocoDetection
-from torchvision.transforms import functional as F
 import numpy as np
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
@@ -28,45 +27,83 @@ transform = A.Compose([
 ], bbox_params=A.BboxParams(format='coco', label_fields=['category_id']))
 
 class CocoDataset(torchvision.datasets.CocoDetection):
+    """
+    Custom dataset class for loading COCO dataset with additional transformations.
+
+    Args:
+        root (str): Root directory where images are downloaded to.
+        annFile (str): Path to the annotation file.
+        transforms (callable, optional): A function/transform that takes in an image and its bounding boxes and returns a transformed version.
+    """
     def __init__(self, root, annFile, transforms=None):
-        print(annFile)
         super(CocoDataset, self).__init__(root, annFile)
         self.transforms = transforms
 
     def __getitem__(self, idx):
+        """
+        Get item by index.
+
+        Args:
+            idx (int): Index of the item.
+
+        Returns:
+            tuple: (image, target) where target is a list of dictionaries containing bounding boxes and category IDs.
+        """
         img, target = super(CocoDataset, self).__getitem__(idx)
         img = np.array(img.convert("RGB"))
         bboxes = [obj['bbox'] for obj in target]
         category_ids = [obj['category_id'] for obj in target]
         if self.transforms:
+            # Apply the transformations with named arguments
             transformed = self.transforms(image=img, bboxes=bboxes, category_id=category_ids)
             img = transformed['image']
             target = [{'bbox': bbox, 'category_id': category_id} for bbox, category_id in zip(transformed['bboxes'], transformed['category_id'])]
         return img, target
 
 class Arthropod_Focal_Net:
+    """
+    Class for training a Mask R-CNN model with a FocalNet backbone on the ArTaxOr dataset.
+
+    Args:
+        dataset_path (str): Path to the dataset.
+        hf_model_string (str): Hugging Face model string for the FocalNet backbone.
+        output_dir (str): Directory to save the trained model.
+        sample_percent (float, optional): Percentage of the dataset to sample for debugging.
+    """
     def __init__(self, dataset_path, hf_model_string, output_dir, sample_percent=None):
+        """
+        Initialize the Arthropod_Focal_Net class with dataset path, model string, output directory, and sample percentage.
+
+        Args:
+            dataset_path (str): Path to the dataset.
+            hf_model_string (str): Hugging Face model string for the FocalNet backbone.
+            output_dir (str): Directory to save the trained model.
+            sample_percent (float, optional): Percentage of the dataset to sample for debugging.
+        """
         self.dataset_path = dataset_path
         self.hf_model_string = hf_model_string
         self.output_dir = output_dir
         self.sample_percent = sample_percent
         self.dataset = None
 
-    # TODO fix this hardcoded value
     def load_dataset(self):
+        """
+        Load the dataset from the specified path and apply transformations. Optionally sample a percentage of the dataset for debugging.
+        """
         print(f"Loading dataset from {self.dataset_path}...")
-        annFile = os.path.join(self.dataset_path, 'annotations/instances_train2017.json')
-        self.dataset = CocoDataset(root=self.dataset_path, annFile=annFile, transforms=transform)
+        annotationFile = os.path.join(self.dataset_path, 'annotations.json')
+        root_path = os.path.join(self.dataset_path, 'images')
+        self.dataset = CocoDataset(root=root_path, annFile=annotationFile, transforms=transform)
 
         if self.sample_percent:
             print(f"Sampling {self.sample_percent}% of the dataset for debugging...")
             num_samples = int(len(self.dataset) * (self.sample_percent / 100))
-            self.dataset = torch.utils.data.Subset(self.dataset, range(num_samples))
+            self.dataset = Subset(self.dataset, range(num_samples))
 
     def load_model_and_processor(self):
-        '''
-        Load the FocalNet model and image processor. The model is loaded from the Hugging Face model hub.
-        '''
+        """
+        Load the FocalNet model and image processor from the Hugging Face model hub. Create the Mask R-CNN model using FocalNet as the backbone.
+        """
         self.backbone = AutoModel.from_pretrained(self.hf_model_string)
         self.image_processor = AutoImageProcessor.from_pretrained(self.hf_model_string)
 
@@ -94,12 +131,23 @@ class Arthropod_Focal_Net:
         )
 
     def collate_fn(self, batch):
+        """
+        Custom collate function to handle batches of images and targets.
+
+        Args:
+            batch (list): List of tuples containing images and targets.
+
+        Returns:
+            tuple: Tuple of lists containing images and targets.
+        """
         return tuple(zip(*batch))
 
     def train_model(self):
-        '''
-        Train the model using PyTorch.
-        '''
+        """
+        Train the Mask R-CNN model using PyTorch. The model is trained for a specified number of epochs and the training and validation losses are printed.
+
+        The trained model is saved to the specified output directory.
+        """
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         self.model.to(device)
 

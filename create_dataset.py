@@ -30,7 +30,7 @@ from datetime import datetime
 import argparse
 from tqdm import tqdm
 
-class HF_Dataset_Generator:
+class Dataset_Generator:
     """
     A class to generate a COCO-format dataset from the ArTaxOr dataset.
     """
@@ -215,7 +215,7 @@ if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
     # Create an instance of the HF_Dataset_Generator class
-    generator = HF_Dataset_Generator(args.data_root_path)
+    generator = Dataset_Generator(args.data_root_path)
 
     # Create and save the COCO-format dataset
     generator.create_coco_manifest(args.output_path)
