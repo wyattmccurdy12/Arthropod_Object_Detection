@@ -6,17 +6,22 @@ sample command:
 python train_model.py -d ArTaxOr_COCO -hf microsoft/focalnet-base -o focalnet_artaxor_output
 '''
 
+# Basic imports
 import os
 import argparse
+import numpy as np
+
+# Torch imports
 import torch
-from torch.utils.data import DataLoader, Subset
 import torchvision
-from transformers import AutoImageProcessor, AutoModel
+from torch.utils.data import DataLoader, Subset
 from torchvision.models.detection import MaskRCNN
 from torchvision.models.detection.rpn import AnchorGenerator
-import numpy as np
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+
+# Huggingface imports
+from transformers import AutoImageProcessor, AutoModel
 
 # Define the transform pipeline
 transform = A.Compose([
@@ -49,10 +54,19 @@ class CocoDataset(torchvision.datasets.CocoDetection):
         Returns:
             tuple: (image, target) where target is a list of dictionaries containing bounding boxes and category IDs.
         """
+        # Get item from the COCO dataset
         img, target = super(CocoDataset, self).__getitem__(idx)
+
+        # Numpy array of image
         img = np.array(img.convert("RGB"))
+
+        # Get bboxes
         bboxes = [obj['bbox'] for obj in target]
+
+        # Get category IDs
         category_ids = [obj['category_id'] for obj in target]
+
+        # Apply transforms if indeed they have been defined and provided
         if self.transforms:
             # Apply the transformations with named arguments
             transformed = self.transforms(image=img, bboxes=bboxes, category_id=category_ids)
@@ -93,7 +107,8 @@ class Arthropod_Focal_Net:
         print(f"Loading dataset from {self.dataset_path}...")
         annotationFile = os.path.join(self.dataset_path, 'annotations.json')
         root_path = os.path.join(self.dataset_path, 'images')
-        self.dataset = CocoDataset(root=root_path, annFile=annotationFile, transforms=transform)
+        # self.dataset = CocoDataset(root=root_path, annFile=annotationFile, transforms=transform)
+        self.dataset = CocoDataset(root = root_path, annFile = annotationFile)
 
         if self.sample_percent:
             print(f"Sampling {self.sample_percent}% of the dataset for debugging...")
@@ -102,8 +117,13 @@ class Arthropod_Focal_Net:
 
     def load_model_and_processor(self):
         """
-        Load the FocalNet model and image processor from the Hugging Face model hub. Create the Mask R-CNN model using FocalNet as the backbone.
+        Load the FocalNet model and image processor from the Hugging Face model hub. 
+        Create the Mask R-CNN model using FocalNet as the backbone.
+
+        The FocalNet model is using transformers methods, while the Mask R-CNN model is using torchvision methods.
+
         """
+        # Load the backbone model and its image processor
         self.backbone = AutoModel.from_pretrained(self.hf_model_string)
         self.image_processor = AutoImageProcessor.from_pretrained(self.hf_model_string)
 
@@ -163,8 +183,21 @@ class Arthropod_Focal_Net:
         for epoch in range(num_epochs):
             self.model.train()
             for images, targets in train_loader:
-                images = list(image.to(device) for image in images)
-                targets = [{k: torch.tensor(v).to(device) for k, v in t.items()} for t in targets]
+
+
+                '''
+                In comes a list for images -- a list for targts
+
+                The images list contains numpy arrays
+                The targets list contains a list of dictionaries,
+                unfortunately the dictionaries are in lists of length 1 for some reason... TODO: Fix this
+                '''
+
+                images = list(torch.tensor(image).to(device) for image in images)
+                
+                # Fix targets to be a list of dictionaries
+                targets = [target[0] if isinstance(target, list) and len(target) == 1 else target for target in targets]
+
 
                 loss_dict = self.model(images, targets)
                 losses = sum(loss for loss in loss_dict.values())
@@ -195,7 +228,7 @@ class Arthropod_Focal_Net:
 def main():
     # Set up argument parser
     parser = argparse.ArgumentParser(description="Train Mask R-CNN model with FocalNet backbone on ArTaxOr dataset.")
-    parser.add_argument("--dataset_path", '-d', type=str, default='ArTaxOr_HF_dataset', help="Path to the COCO dataset.")
+    parser.add_argument("--dataset_path", '-d', type=str, default='ArTaxOr_COCO', help="Path to the COCO dataset.")
     parser.add_argument("--hf_model_string", '-hf', type=str, default='microsoft/focalnet-base', help="Hugging Face model string.")
     parser.add_argument("--output_dir", '-o', type=str, default='focalnet_maskrcnn', help="Directory to save the trained model.")
     parser.add_argument("--sample_percent", '-sp', type=int, default=10, help="Percentage of samples to preprocess for debugging (1-100).")
